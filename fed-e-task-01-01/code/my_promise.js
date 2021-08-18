@@ -7,7 +7,7 @@ class MyPromise {
     try {
       executor(this.resolve, this.reject);
     } catch (error) {
-      this.reject(e);
+      this.reject(error);
     }
   }
   // promsie 状态
@@ -16,9 +16,9 @@ class MyPromise {
   value = undefined;
   // 失败后的原因
   reason = undefined;
-  //成功回调
+  // 成功回调
   successCallback = [];
-  //失败回调
+  // 失败回调
   failCallback = [];
 
   resolve = (value) => {
@@ -28,8 +28,7 @@ class MyPromise {
     this.status = FULFILLED;
     // 保存成功之后的值
     this.value = value;
-    //判断成功回调是否存在
-    // if(this.failCallback)this.failCallback(this.value)
+    // 判断成功回调是否存在 如果存在 调用
     while (this.successCallback.length) this.successCallback.shift()();
   };
   reject = (reason) => {
@@ -39,25 +38,29 @@ class MyPromise {
     this.status = REJECTED;
     // 保存失败后的原因
     this.reason = reason;
-    //判断失败回调是否存在
+    // 判断失败回调是否存在 如果存在 调用
     while (this.failCallback.length) this.failCallback.shift()();
   };
-  then = (successCallback, failCallback) => {
+  then(successCallback, failCallback) {
+    // 参数可选
     successCallback = successCallback ? successCallback : (value) => value;
-    failCallback = failCallback ? failCallback : (reason) => reason;
-
+    // 参数可选
+    failCallback = failCallback
+      ? failCallback
+      : (reason) => {
+          throw reason;
+        };
     let promsie2 = new MyPromise((resolve, reject) => {
-      //判断状态
+      // 判断状态
       if (this.status === FULFILLED) {
         setTimeout(() => {
           try {
-            //回调执行过程中错误捕获
             let x = successCallback(this.value);
             // 判断 x 的值是普通值还是promise对象
             // 如果是普通值 直接调用resolve
             // 如果是promise对象 查看promsie对象返回的结果
             // 再根据promise对象返回的结果 决定调用resolve 还是调用reject
-            resolvePromoise(promsie2, x, resolve, reject);
+            resolvePromise(promsie2, x, resolve, reject);
           } catch (error) {
             reject(error);
           }
@@ -70,22 +73,23 @@ class MyPromise {
             // 如果是普通值 直接调用resolve
             // 如果是promise对象 查看promsie对象返回的结果
             // 再根据promise对象返回的结果 决定调用resolve 还是调用reject
-            resolvePromoise(promsie2, x, resolve, reject);
+            resolvePromise(promsie2, x, resolve, reject);
           } catch (error) {
             reject(error);
           }
-        });
+        }, 0);
       } else {
+        // 等待
+        // 将成功回调和失败回调存储起来
         this.successCallback.push(() => {
           setTimeout(() => {
             try {
-              //回调执行过程中错误捕获
               let x = successCallback(this.value);
               // 判断 x 的值是普通值还是promise对象
               // 如果是普通值 直接调用resolve
               // 如果是promise对象 查看promsie对象返回的结果
               // 再根据promise对象返回的结果 决定调用resolve 还是调用reject
-              resolvePromoise(promsie2, x, resolve, reject);
+              resolvePromise(promsie2, x, resolve, reject);
             } catch (error) {
               reject(error);
             }
@@ -93,68 +97,86 @@ class MyPromise {
         });
         this.failCallback.push(() => {
           setTimeout(() => {
-            let x = failCallback(this.reason);
-            // 判断 x 的值是普通值还是promise对象
-            // 如果是普通值 直接调用resolve
-            // 如果是promise对象 查看promsie对象返回的结果
-            // 再根据promise对象返回的结果 决定调用resolve 还是调用reject
-            resolvePromoise(promsie2, x, resolve, reject);
-          });
+            try {
+              let x = failCallback(this.reason);
+              // 判断 x 的值是普通值还是promise对象
+              // 如果是普通值 直接调用resolve
+              // 如果是promise对象 查看promsie对象返回的结果
+              // 再根据promise对象返回的结果 决定调用resolve 还是调用reject
+              resolvePromise(promsie2, x, resolve, reject);
+            } catch (error) {
+              reject(error);
+            }
+          }, 0);
         });
       }
     });
     return promsie2;
-  };
-  static all(array) {
-    let result = [];
-    function addData(key, value) {
-      result[key] = value;
-    }
-    return new Promise((resolve, reject) => {
-      for (let i = 0; i < array.length; i++) {
-        const current = array[i];
-        if (current instanceof MyPromise) {
-          //promise 对象
-          current.then(
-            (value) => {
-              addData(i, value);
-            },
-            (reason) => {
-              reject(reason);
-            }
-          );
-        } else {
-          //普通值
-          addData(i, array[i]);
-        }
-      }
-      resolve(result);
-    });
   }
-
-  static resolve(callback) {
+  finally(callback) {
+    //不管成功失败都会调用  callback
     return this.then(
       (value) => {
         return MyPromise.resolve(callback()).then(() => value);
       },
-      (reason) => {}
+      (reason) => {
+        return MyPromise.resolve(callback()).then(() => {
+          throw reason;
+        });
+      }
     );
+  }
+  catch(failCallback) {
+    return this.then(undefined, failCallback);
+  }
+  static all(array) {
+    let result = [];
+    let index = 0;
+    return new MyPromise((resolve, reject) => {
+      function addData(key, value) {
+        result[key] = value;
+        index++;
+        if (index === array.length) {
+          resolve(result);
+        }
+      }
+      for (let i = 0; i < array.length; i++) {
+        let current = array[i];
+        if (current instanceof MyPromise) {
+          // promise 对象
+          current.then(
+            (value) => addData(i, value),
+            (reason) => reject(reason)
+          );
+        } else {
+          // 普通值
+          addData(i, array[i]);
+        }
+      }
+    });
+  }
+  static resolve(value) {
+    //如果是promise 直接返回
+    if (value instanceof MyPromise) return value;
+    //如果是普通值 返回一个成功的promise
+    return new MyPromise((resolve) => resolve(value));
   }
 }
 
-function resolvePromoise(promsie2, x, resolve, reject) {
+function resolvePromise(promsie2, x, resolve, reject) {
   if (promsie2 === x) {
     return reject(
       new TypeError("Chaining cycle detected for promise #<Promise>")
     );
   }
   if (x instanceof MyPromise) {
-    //promise
+    // promise 对象
+    // x.then(value => resolve(value), reason => reject(reason));
     x.then(resolve, reject);
   } else {
-    //普通值
+    // 普通值
     resolve(x);
   }
 }
 
-
+module.exports = MyPromise;
